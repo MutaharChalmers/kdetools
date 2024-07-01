@@ -6,7 +6,7 @@ import scipy.stats as st
 
 
 class kdecdf():
-    def __init__(self, N=50, n_sigs=1):
+    def __init__(self, N=50, n_sigs=1, method='iqr'):
         """Efficient 1D Gaussian KDE modelling of empirical CDFs.
         Models fitted along axis 0 of a 2D numpy array.
 
@@ -16,23 +16,24 @@ class kdecdf():
             Number of points in 1D interpolation grid.
         n_sigs : int or float
             Number of kernel sigs beyond data bounds to buffer grid.
+        method : str
+            Method used to estimate kernel bandwidth. Both options based on the
+            Silverman method, with the default `iqr` using the interquartile
+            range method. For more details see:
+            en.wikipedia.org/wiki/Kernel_density_estimation#Bandwidth_selection
         """
 
         self.N = N
         self.n_sigs = n_sigs
+        self.method = method
 
-    def fit(self, X, method='iqr'):
+    def fit(self, X):
         """Fit model to data.
 
         Parameters
         ----------
         X : (m, n) ndarray
             Data matrix.
-        method : str
-            Method used to estimate kernel bandwidth. Both options based on the
-            Silverman method, with the default `iqr` using the interquartile 
-            range method. For more details see:
-            en.wikipedia.org/wiki/Kernel_density_estimation#Bandwidth_selection
         """
 
         if self.N is None:
@@ -47,9 +48,9 @@ class kdecdf():
 
         # Estimate bandwidth h using Silverman's factor
         n = X.shape[0]
-        iqrs = np.diff(np.quantile(X, [0.25, 0.75], axis=0), axis=0)[0]
         X_std = np.std(X, axis=0, ddof=1)
-        if method == 'iqr':
+        if self.method == 'iqr':
+            iqrs = np.diff(np.quantile(X, [0.25, 0.75], axis=0), axis=0)[0]
             self.sigs = 0.9*np.minimum(iqrs/1.34, X_std)*n**(-1/5)
         else:
             self.sigs = 1.06*X_std*n**(-1/5)
