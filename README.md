@@ -1,0 +1,2 @@
+# kdetools
+Some useful tools for working with Kernel Density Estimates (KDEs) built on top of the `scipy` Gaussian kernel density estimation class `scipy.stats.gaussian_kde`. Currently includes a superclass with an additional method (`kdecond`) for conditional random sampling from a multivariate KDE, and a new class (`kdecdf`) for vectorised 1d KDE fitting, conversion to a smoothed empirical CDF and inverse probability transforms.
