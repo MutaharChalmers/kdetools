@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kdetools"
-version = "0.1.1"
+version = "0.1.2"
 description = "Tools for working with Kernel Density Estimates"
 authors = [
            { name = "Mutahar Chalmers", email = "mutahar.chalmers@gmail.com" },
