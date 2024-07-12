@@ -15,10 +15,10 @@ class gaussian_kde(st.gaussian_kde):
         """
         super(gaussian_kde, self).__init__(dataset, bw_method=bw_method)
 
-    def _mvn_pdf(self, x, mu, cov):
-        """Vectorised evaluation of multivariate normal pdf for KDE.
+    def _mvn_logpdf(self, x, mu, cov):
+        """Vectorised evaluation of multivariate normal log-pdf for KDE.
 
-        Evaluates density for all combinations of data points x and
+        Evaluates log-density for all combinations of data points x and
         distribution means mu, assuming a fixed covariance matrix.
 
         Parameters
@@ -32,8 +32,8 @@ class gaussian_kde(st.gaussian_kde):
 
         Returns
         -------
-        pdf : (m, p) ndarray
-            Array of pdfs.
+        logpdf : (m, p) ndarray
+            Array of log-pdfs.
         """
 
         # Dimension of MVN
@@ -50,7 +50,11 @@ class gaussian_kde(st.gaussian_kde):
         # Mahalanobis distance using computed eigenvectors and eigenvalues
         maha = ((np.square((x[:,None] - mu) @ u)/s).sum(axis=2))
         logpdf = -0.5*(klog_2pi + log_pdet + maha)
-        return np.exp(logpdf)
+        return logpdf
+
+    def _mvn_pdf(self, x, mu, cov):
+        """Vectorised evaluation of multivariate normal pdf for KDE."""
+        return np.exp(self._mvn_logpdf(x, mu, cov))
 
     def conditional_resample(self, size, x_cond, dims_cond, seed=None):
         """Fast conditional sampling of estimated pdf.
