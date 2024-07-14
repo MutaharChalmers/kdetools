@@ -138,7 +138,7 @@ class kdecdf():
         self.n_sigs = None
 
         # Read numeric data from binary
-        self.grids, self.cdfs = np.load(os.path.join(outpath, f'{desc}.npy'))
+        self.grids, self.cdfs = np.load(os.path.join(inpath, f'{desc}.npy'))
 
     def calc_ecdf(self, X):
         """Calculate empirical CDF along axis 0 of 2D numpy array.
