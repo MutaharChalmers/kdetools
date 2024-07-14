@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kdetools"
-version = "0.1.2"
+version = "0.1.3"
 description = "Tools for working with Kernel Density Estimates"
 authors = [
            { name = "Mutahar Chalmers", email = "mutahar.chalmers@gmail.com" },
@@ -24,4 +24,4 @@ dependencies = [ "numpy>=1.18", "scipy>=1.10",
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/FuzzyDuck79/kdetools"
+"Homepage" = "https://github.com/MutaharChalmers/kdetools"
