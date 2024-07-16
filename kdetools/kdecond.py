@@ -125,7 +125,7 @@ class gaussian_kde(st.gaussian_kde):
         random_state = check_random_state(seed)
 
         # Determine indices of dimensions to be sampled from
-        dims_samp = np.array(list(set(range(self.d)) - set(dims_cond)))
+        dims_samp = np.setdiff1d(range(self.d), dims_cond)
 
         # Subset KDE kernel covariance matrix into blocks
         A = self.covariance[np.ix_(dims_samp, dims_samp)]
