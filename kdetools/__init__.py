@@ -1,2 +1,2 @@
+from .kde import gaussian_kde
 from .kdecdf import kdecdf
-from .kdecond import gaussian_kde
