@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import os
 import numpy as np
 import scipy.linalg as sl
 import scipy.optimize as so
 import scipy.stats as st
 from scipy._lib._util import check_random_state
+import json
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 
 class gaussian_kde(st.gaussian_kde):
@@ -13,9 +17,17 @@ class gaussian_kde(st.gaussian_kde):
     conditional sampling and bandwidth selection by cross-validation."""
  
     def __init__(self, dataset, bw_method=None):
-        """Create superclass of scipy gaussian_kde.
+        """Subclass scipy gaussian_kde.
         """
         super(gaussian_kde, self).__init__(dataset, bw_method=bw_method)
+        if callable(bw_method):
+            self.bw_method = 'callable [not saveable]'
+        elif np.isscalar(bw_method) and not isinstance(bw_method, str):
+            self.bw_method = f'constant={bw_method}'
+        elif isinstance(bw_method, str):
+            self.bw_method = bw_method
+        else:
+            self.bw_method = 'scott'
 
     def _mvn_logpdf(self, x, mu, cov):
         """Vectorised evaluation of multivariate normal log-pdf for KDE.
@@ -95,17 +107,17 @@ class gaussian_kde(st.gaussian_kde):
 
         if bw_method == 'cv':
             # Define bandwidth log-likelihood functions for cross-validation
-            # Vector of factors scaling each dimension with no cross-covariance
-            if bw_type == 'diagonal':
-                h0 = self.dataset.std(ddof=1, axis=1) * self.silverman_factor_ref()
-                def negloglike(h, Xeval, Xfit):
-                    return -np.log(self._mvn_pdf(Xeval, Xfit, np.diag(h**2)
-                                                ).mean(axis=1)).sum()
             # Single factor scaling data covariance matrix
-            elif bw_type == 'covariance':
+            if bw_type == 'covariance':
                 h0 = self.silverman_factor_ref().mean()
                 def negloglike(h, Xeval, Xfit):
                     return -np.log(self._mvn_pdf(Xeval, Xfit, np.cov(Xfit.T)*h**2
+                                                ).mean(axis=1)).sum()
+            # Vector of factors scaling each dimension with no cross-covariance
+            elif bw_type == 'diagonal':
+                h0 = self.dataset.std(ddof=1, axis=1) * self.silverman_factor_ref()
+                def negloglike(h, Xeval, Xfit):
+                    return -np.log(self._mvn_pdf(Xeval, Xfit, np.diag(h**2)
                                                 ).mean(axis=1)).sum()
             # Single factor scaling in all dimensions with no cross-covariance
             elif bw_type == 'equal':
@@ -114,13 +126,16 @@ class gaussian_kde(st.gaussian_kde):
                     return -np.log(self._mvn_pdf(Xeval, Xfit, np.eye(self.d)*h**2
                                                 ).mean(axis=1)).sum()
             else:
-                print('bw_type must be diagonal, covariance or equal')
+                print('bw_type must be covariance, diagonal or equal')
                 return None
+
+            self.bw_method = 'cv'
             self.bw_type = bw_type
 
             # Define cross-validation - default LOOCV
             if k is None:
                 k = self.dataset[0].size
+            self.k = k
             splits = self.kfold_split(self.dataset.T, k)
 
             # Minimise negative log-likelihood CV
@@ -133,7 +148,16 @@ class gaussian_kde(st.gaussian_kde):
             self.covariance_factor = lambda: self.h
             self._compute_covariance()
         else:
-            self.bw_type = 'covariance_original'
+            if callable(bw_method):
+                self.bw_method = 'callable [not saveable]'
+            elif np.isscalar(bw_method) and not isinstance(bw_method, str):
+                self.bw_method = f'constant={bw_method}'
+            elif isinstance(bw_method, str):
+                self.bw_method = bw_method
+            else:
+                self.bw_method = 'scott'
+            self.bw_type = 'covariance'
+            self.k = None
             super(gaussian_kde, self).set_bandwidth(bw_method=bw_method)
 
     def _compute_covariance(self):
@@ -154,7 +178,7 @@ class gaussian_kde(st.gaussian_kde):
             self.covariance = np.diag(self.factor**2)
         elif self.bw_type == 'equal':
             self.covariance = np.eye(self.d)*self.factor**2
-        else: # 'covariance' or 'covariance_original'
+        else: # 'covariance'
             self.covariance = self._data_covariance * self.factor**2
 
         self.cho_cov = sl.cholesky(self.covariance, lower=True).astype(np.float64)
@@ -170,7 +194,7 @@ class gaussian_kde(st.gaussian_kde):
             return np.linalg.inv(np.diag(self.factor**2))
         elif self.bw_type == 'equal':
             return np.linalg.inv(np.eye(self.d)*self.factor**2)
-        else: # 'covariance' or 'covariance_original'
+        else: # 'covariance'
             return np.linalg.inv(self._data_covariance * self.factor**2)
 
     def conditional_resample(self, size, x_cond, dims_cond, seed=None):
@@ -235,3 +259,91 @@ class gaussian_kde(st.gaussian_kde):
         anoms = random_state.multivariate_normal(np.zeros(cov.shape[0]), cov,
                                                  size=(x_cond.shape[0], size))
         return mus + anoms
+
+    def save(self, outpath, model_name, overwrite=False):
+        """Save model to disk.
+
+        Parameters
+        ----------
+        outpath : str
+            Outpath.
+        model_name : str
+            Model name.
+        overwrite : bool
+            Overwrite data if it exists. Default False.
+        """
+
+        # Create directory
+        outpath = os.path.join(outpath, model_name)
+        try:
+            os.makedirs(outpath)
+        except:
+            if overwrite:
+                print('Model file exists; overwriting...')
+            else:
+                print('Model file exists; aborting...')
+
+        # Define metadata to recreate the KDE model and write to file
+        meta = {'name': model_name,
+                'bw_method': self.bw_method,
+                'bw_type': self.bw_type,
+                'factor': self.factor if np.isscalar(self.factor)
+                else self.factor.tolist(),
+                'k': self.k}
+
+        with open(os.path.join(outpath, 'meta.json'), 'w') as f:
+            json.dump(meta, f)
+
+        # Write data and covariance matrix to parquet file
+        # Note file saved in long format, unlike wide internally
+        data_pa = pa.table({f'{i}': self.dataset[i]
+                            for i in range(self.dataset.shape[0])})
+        pq.write_table(data_pa, os.path.join(outpath, 'data.parquet'))
+
+        cov_pa = pa.table({f'{i}': self.covariance[i]
+                            for i in range(self.covariance.shape[0])})
+        pq.write_table(cov_pa, os.path.join(outpath, 'cov.parquet'))
+
+def load(inpath, model_name):
+    """Load model from disk.
+
+    Parameters
+    ----------
+    inpath : str
+        Inpath.
+    model_name : str
+        Model name.
+
+    Returns
+    -------
+    kde : kdetools.gaussian_kde
+        Instance of custom Gaussian KDE.
+    """
+
+    # Load metadata
+    inpath = os.path.join(inpath, model_name)
+    with open(os.path.join(inpath, 'meta.json'), 'r') as f:
+        meta = json.load(f)
+
+    # Load dataset and covariance matrix
+    data_raw = pq.read_table(os.path.join(inpath, 'data.parquet'))
+    data = np.vstack([data_raw[i].to_numpy()
+                      for i in range(data_raw.num_columns)])
+
+    cov_raw = pq.read_table(os.path.join(inpath, 'cov.parquet'))
+    cov = np.vstack([cov_raw[i].to_numpy()
+                     for i in range(cov_raw.num_columns)])
+
+    # Create gaussian_kde object
+    if 'cv' in meta['bw_method']:
+        kde = gaussian_kde(data, bw_method=None)
+        kde.covariance_factor = lambda: meta['factor'] if np.isscalar(meta['factor']) else np.array(meta['factor'])
+        kde.bw_type = meta['bw_type']
+        kde._compute_covariance()
+    else:
+        kde = gaussian_kde(data, bw_method=meta['bw_method'])
+        kde.bw_type = 'covariance'
+
+    kde.bw_method = meta['bw_method']
+    kde.k = meta['k']
+    return kde

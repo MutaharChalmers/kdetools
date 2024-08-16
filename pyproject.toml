@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kdetools"
-version = "0.1.7"
+version = "0.1.8"
 description = "Kernel Density Estimation tools and functions"
 authors = [
            { name = "Mutahar Chalmers", email = "mutahar.chalmers@gmail.com" },
@@ -20,7 +20,7 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 requires-python = ">=3.8"
-dependencies = [ "numpy>=1.18", "scipy>=1.10",
+dependencies = [ "numpy>=1.18", "scipy>=1.10","pyarrow>=10.0"
 ]
 
 [project.urls]
