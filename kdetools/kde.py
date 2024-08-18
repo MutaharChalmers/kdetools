@@ -282,6 +282,7 @@ class gaussian_kde(st.gaussian_kde):
                 print('Model file exists; overwriting...')
             else:
                 print('Model file exists; aborting...')
+                return None
 
         # Define metadata to recreate the KDE model and write to file
         meta = {'name': model_name,
