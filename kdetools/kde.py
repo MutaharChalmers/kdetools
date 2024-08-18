@@ -21,9 +21,9 @@ class gaussian_kde(st.gaussian_kde):
         """
         super(gaussian_kde, self).__init__(dataset, bw_method=bw_method)
         if callable(bw_method):
-            self.bw_method = 'callable [not saveable]'
+            self.bw_method = 'callable'
         elif np.isscalar(bw_method) and not isinstance(bw_method, str):
-            self.bw_method = f'constant={bw_method}'
+            self.bw_method = 'constant'
         elif isinstance(bw_method, str):
             self.bw_method = bw_method
         else:
@@ -91,7 +91,7 @@ class gaussian_kde(st.gaussian_kde):
                 *np.power(self.neff, -1/5)
                ).ravel()/self.dataset.std(ddof=1, axis=1)
 
-    def set_bandwidth(self, bw_method=None, bw_type='diagonal', k=None):
+    def set_bandwidth(self, bw_method=None, bw_type='covariance', k=None):
         """Add bandwidth selection by cross-validation.
 
         Parameters
@@ -99,8 +99,8 @@ class gaussian_kde(st.gaussian_kde):
         bw_method : str, scalar or callable, optional
             As parent class, with extra 'cv' option.
         bw_type : str, optional
-            Type of bandwidth matrix. Options are `diagonal`,
-            `covariance` and `equal`.
+            Type of bandwidth matrix. Options are `covariance` (default),
+            `diagonal`, and `equal`.
         k : int, optional
             Number of folds in cross-validation. Leave One Out by default.
         """
@@ -149,9 +149,9 @@ class gaussian_kde(st.gaussian_kde):
             self._compute_covariance()
         else:
             if callable(bw_method):
-                self.bw_method = 'callable [not saveable]'
+                self.bw_method = 'callable'
             elif np.isscalar(bw_method) and not isinstance(bw_method, str):
-                self.bw_method = f'constant={bw_method}'
+                self.bw_method = f'constant'
             elif isinstance(bw_method, str):
                 self.bw_method = bw_method
             else:
@@ -260,7 +260,7 @@ class gaussian_kde(st.gaussian_kde):
                                                  size=(x_cond.shape[0], size))
         return mus + anoms
 
-    def save(self, outpath, model_name, overwrite=False):
+    def save(self, outpath, model_name, overwrite=False, verbose=True):
         """Save model to disk.
 
         Parameters
@@ -271,7 +271,13 @@ class gaussian_kde(st.gaussian_kde):
             Model name.
         overwrite : bool
             Overwrite data if it exists. Default False.
+        verbose : bool
+            Show error messages. Default True.
         """
+
+        if self.bw_method == 'callable':
+            print('Cannot save models with bw_method defined as callable')
+            return None
 
         # Create directory
         outpath = os.path.join(outpath, model_name)
@@ -279,9 +285,11 @@ class gaussian_kde(st.gaussian_kde):
             os.makedirs(outpath)
         except:
             if overwrite:
-                print('Model file exists; overwriting...')
+                if verbose:
+                    print('Model file exists; overwriting...')
             else:
-                print('Model file exists; aborting...')
+                if verbose:
+                    print('Model file exists; aborting...')
                 return None
 
         # Define metadata to recreate the KDE model and write to file
@@ -335,12 +343,15 @@ def load(inpath, model_name):
     cov = np.vstack([cov_raw[i].to_numpy()
                      for i in range(cov_raw.num_columns)])
 
-    # Create gaussian_kde object
-    if 'cv' in meta['bw_method']:
+    # Recreate gaussian_kde object
+    if meta['bw_method'] == 'cv':
         kde = gaussian_kde(data, bw_method=None)
         kde.covariance_factor = lambda: meta['factor'] if np.isscalar(meta['factor']) else np.array(meta['factor'])
         kde.bw_type = meta['bw_type']
         kde._compute_covariance()
+    elif meta['bw_method'] == 'constant':
+        kde = gaussian_kde(data, bw_method=meta['factor'])
+        kde.bw_type = 'covariance'
     else:
         kde = gaussian_kde(data, bw_method=meta['bw_method'])
         kde.bw_type = 'covariance'
