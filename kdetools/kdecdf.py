@@ -3,11 +3,13 @@
 
 import os
 import numpy as np
+import pandas as pd
 import scipy.stats as st
+import scipy.special as ss
 
 
 class kdecdf():
-    def __init__(self, N=50, n_sigs=1, method='iqr'):
+    def __init__(self, N=50, buffer_bws=1, method='iqr'):
         """Efficient 1D Gaussian KDE modelling of empirical CDFs.
         Models fitted along axis 0 of a 2D numpy array.
 
@@ -15,8 +17,8 @@ class kdecdf():
         ----------
         N : int
             Number of points in 1D interpolation grid.
-        n_sigs : int or float
-            Number of kernel sigs beyond data bounds to buffer grid.
+        buffer_bws : int or float
+            Number of kernel bandwidths beyond data bounds to buffer grid.
         method : str
             Method used to estimate kernel bandwidth. Both options based on the
             Silverman method, with the default `iqr` using the interquartile
@@ -25,7 +27,7 @@ class kdecdf():
         """
 
         self.N = N
-        self.n_sigs = n_sigs
+        self.buffer_bws = buffer_bws
         self.method = method
 
     def fit(self, X):
@@ -33,7 +35,7 @@ class kdecdf():
 
         Parameters
         ----------
-        X : (m, n) ndarray
+        X : (m, n) ndarray or DataFrame
             Data matrix.
         """
 
@@ -41,6 +43,13 @@ class kdecdf():
             print('Model loaded from file - cannot be re-fit')
             return None
 
+        # Save or define column names and convert to 2D ndarray for processing
+        if isinstance(X, pd.DataFrame):
+            self.columns = X.columns
+        elif isinstance(X, pd.Series):
+            self.columns = X.name
+        else:
+            self.columns = np.arange(X.shape[1])
         X = np.atleast_2d(X.T).T
 
         # Calculate mins and maxes for each 1D vector and normalise
@@ -52,16 +61,16 @@ class kdecdf():
         X_std = np.std(X, axis=0, ddof=1)
         if self.method == 'iqr':
             iqrs = np.diff(np.quantile(X, [0.25, 0.75], axis=0), axis=0)[0]
-            self.sigs = 0.9*np.minimum(iqrs/1.34, X_std)*n**(-1/5)
+            self.bws = 0.9*np.minimum(iqrs/1.34, X_std)*n**(-1/5)
         else:
-            self.sigs = 1.06*X_std*n**(-1/5)
+            self.bws = 1.06*X_std*n**(-1/5)
 
         # Calculate points at which to evaluate CDFs
-        self.grids = np.linspace(self.mins-self.n_sigs*self.sigs, 
-                                 self.maxs+self.n_sigs*self.sigs, self.N)
+        self.grids = np.linspace(self.mins-self.buffer_bws*self.bws,
+                                 self.maxs+self.buffer_bws*self.bws, self.N)
 
         # Calculate CDFs
-        self.cdfs = st.norm.cdf((self.grids[:,None]-X)/self.sigs).mean(axis=1)
+        self.cdfs = ss.ndtr((self.grids[:,None]-X)/self.bws).mean(axis=1)
 
     def transform(self, X):
         """Calculate CDFs for data matrix X using fitted KDE model.
@@ -107,7 +116,7 @@ class kdecdf():
                     (self.cdfs[i,j] - self.cdfs[i-1,j]))
         return self.grids[i-1,j] + gradient*(U-self.cdfs[i-1,j])
 
-    def to_file(self, outpath, desc):
+    def to_file(self, outpath, desc, format='parquet'):
         """Save KDE model to file.
         
         Parameters
@@ -116,13 +125,21 @@ class kdecdf():
             Path to save model.
         desc : str
             Model description, and filename excluding suffix.
+        format : str, optional
+            File format to use. Parquet by default, otherwise numpy binary.
         """
 
-        # Write numeric data to binary as a (2, m, n) array
-        np.save(os.path.join(outpath, f'{desc}.npy'), 
-                np.stack([self.grids, self.cdfs]))
+        if format == 'parquet':
+            grids = pd.DataFrame(self.grids, columns=self.columns)
+            cdfs = pd.DataFrame(self.cdfs, columns=self.columns)
+            pd.concat({'grids': grids, 'cdfs':cdfs}
+                      ).to_parquet(os.path.join(outpath, f'{desc}.parquet'))
+        else:
+            # Write numeric data to binary as a (2, m, n) array
+            np.save(os.path.join(outpath, f'{desc}.npy'),
+                    np.stack([self.grids, self.cdfs]))
 
-    def from_file(self, inpath, desc):
+    def from_file(self, inpath, desc, format='parquet'):
         """Load KDE model from file.
 
         Parameters
@@ -131,27 +148,37 @@ class kdecdf():
             Path to saved model.
         desc : str
             Model description, and filename excluding suffix.
+        format : str, optional
+            File format to use. Parquet by default, otherwise numpy binary.
         """
 
         # Set None to flag to `fit()` method that this model cannot be refit
         self.N = None
-        self.n_sigs = None
+        self.buffer_bws = None
 
-        # Read numeric data from binary
-        self.grids, self.cdfs = np.load(os.path.join(inpath, f'{desc}.npy'))
+        if format == 'parquet':
+            df = pd.read_parquet(os.path.join(inpath, f'{desc}.parquet'))
+            self.columns = df.columns
+            self.grids = df.loc['grids'].to_numpy()
+            self.cdfs = df.loc['cdfs'].to_numpy()
+        else:
+            # Read numeric data from binary
+            self.grids, self.cdfs = np.load(os.path.join(inpath, f'{desc}.npy'))
 
-    def calc_ecdf(self, X):
-        """Calculate empirical CDF along axis 0 of 2D numpy array.
+    def calc_ecdf(self, X, axis=0):
+        """Calculate empirical CDF along axis of ndarray.
 
         Parameters
         ----------
-        X : (m, n) ndarray
+        X : ndarray
             Data matrix.
+        axis : int, optional
+            Axis along which to calculate ECDF.
 
         Returns
         -------
-        ecdf : (m, n) ndarray
+        ecdf : ndarray
             Calculated ECDFs.
         """
 
-        return st.rankdata(X, axis=0)/X.shape[0]
+        return st.rankdata(X, axis=axis)/X.shape[axis]
