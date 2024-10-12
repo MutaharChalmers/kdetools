@@ -94,7 +94,7 @@ class kdecdf():
         """
 
         X = np.atleast_2d(X.T).T
-        if self.nanfill is 'median':
+        if self.nanfill == 'median':
             X = np.where(np.isnan(X), np.nanmedian(X, axis=0), X)
         elif self.nanfill == 'mean':
             X = np.where(np.isnan(X), np.nanmean(X, axis=0), X)
@@ -123,7 +123,7 @@ class kdecdf():
         """
 
         U = np.atleast_2d(U.T).T
-        if self.nanfill is 'median':
+        if self.nanfill == 'median':
             U = np.where(np.isnan(U), np.nanmedian(U, axis=0), U)
         elif self.nanfill == 'mean':
             U = np.where(np.isnan(U), np.nanmean(U, axis=0), U)
