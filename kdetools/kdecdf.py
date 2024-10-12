@@ -9,26 +9,32 @@ import scipy.special as ss
 
 
 class kdecdf():
-    def __init__(self, N=50, buffer_bws=1, method='iqr'):
+    def __init__(self, N=50, buffer_bws=1, method='iqr', nanfill=None):
         """Efficient 1D Gaussian KDE modelling of empirical CDFs.
         Models fitted along axis 0 of a 2D numpy array.
 
         Parameters
         ----------
-        N : int
+        N : int, optional
             Number of points in 1D interpolation grid.
-        buffer_bws : int or float
+        buffer_bws : int or float, optional
             Number of kernel bandwidths beyond data bounds to buffer grid.
-        method : str
+        method : str, optional
             Method used to estimate kernel bandwidth. Both options based on the
             Silverman method, with the default `iqr` using the interquartile
             range method. For more details see:
             en.wikipedia.org/wiki/Kernel_density_estimation#Bandwidth_selection
+        nanfill : str, optional
+            Fill nans, and if so, how to do it. None doesn't fill nans, 'mean'
+            and 'median' fills nans with the mean and median along axis 0.
+            In the fit method, nan filling is always done after calculating
+            bandwidths, to ensure a well-defined ECDF is calculated.
         """
 
         self.N = N
         self.buffer_bws = buffer_bws
         self.method = method
+        self.nanfill = nanfill
 
     def fit(self, X):
         """Fit model to data.
@@ -53,14 +59,14 @@ class kdecdf():
         X = np.atleast_2d(X.T).T
 
         # Calculate mins and maxes for each 1D vector and normalise
-        self.mins = X.min(axis=0)
-        self.maxs = X.max(axis=0)
+        self.mins = np.nanmin(X, axis=0)
+        self.maxs = np.nanmax(X, axis=0)
 
         # Estimate bandwidth h using Silverman's factor
         n = X.shape[0]
-        X_std = np.std(X, axis=0, ddof=1)
+        X_std = np.nanstd(X, axis=0, ddof=1)
         if self.method == 'iqr':
-            iqrs = np.diff(np.quantile(X, [0.25, 0.75], axis=0), axis=0)[0]
+            iqrs = np.diff(np.nanquantile(X, [0.25, 0.75], axis=0), axis=0)[0]
             self.bws = 0.9*np.minimum(iqrs/1.34, X_std)*n**(-1/5)
         else:
             self.bws = 1.06*X_std*n**(-1/5)
@@ -69,7 +75,8 @@ class kdecdf():
         self.grids = np.linspace(self.mins-self.buffer_bws*self.bws,
                                  self.maxs+self.buffer_bws*self.bws, self.N)
 
-        # Calculate CDFs
+        # Calculate CDFs; fill nans with median, i.e. assuming few nans
+        X = np.where(np.isnan(X), np.nanmedian(X, axis=0), X)
         self.cdfs = ss.ndtr((self.grids[:,None]-X)/self.bws).mean(axis=1)
 
     def transform(self, X):
@@ -87,7 +94,14 @@ class kdecdf():
         """
 
         X = np.atleast_2d(X.T).T
-        i = np.array([np.searchsorted(self.grids[:,k], X[:,k]) 
+        if self.nanfill is 'median':
+            X = np.where(np.isnan(X), np.nanmedian(X, axis=0), X)
+        elif self.nanfill == 'mean':
+            X = np.where(np.isnan(X), np.nanmean(X, axis=0), X)
+        else:
+            pass
+
+        i = np.array([np.searchsorted(self.grids[:,k], X[:,k])
                             for k in range(X.shape[1])]).T
         j = np.arange(X.shape[1])[None,:]
         gradient = ((self.cdfs[i,j] - self.cdfs[i-1,j])/
@@ -95,8 +109,8 @@ class kdecdf():
         return self.cdfs[i-1,j] + gradient*(X-self.grids[i-1,j])
 
     def inverse(self, U):
-        """Efficient 1D KDE estimates of ECDF along axis 0 of a 2D numpy array.
-        
+        """KDE quantile function for [0, 1] uniform matrix U.
+
         Parameters
         ----------
         U : (m, n) ndarray
@@ -109,7 +123,14 @@ class kdecdf():
         """
 
         U = np.atleast_2d(U.T).T
-        i = np.array([np.searchsorted(self.cdfs[:,k], U[:,k]) 
+        if self.nanfill is 'median':
+            U = np.where(np.isnan(U), np.nanmedian(U, axis=0), U)
+        elif self.nanfill == 'mean':
+            U = np.where(np.isnan(U), np.nanmean(U, axis=0), U)
+        else:
+            pass
+
+        i = np.array([np.searchsorted(self.cdfs[:,k], U[:,k])
                       for k in range(U.shape[1])]).T
         j = np.arange(U.shape[1])[None,:]
         gradient = ((self.grids[i,j] - self.grids[i-1,j])/
@@ -118,7 +139,7 @@ class kdecdf():
 
     def to_file(self, outpath, desc, format='parquet'):
         """Save KDE model to file.
-        
+
         Parameters
         ----------
         outpath : str
