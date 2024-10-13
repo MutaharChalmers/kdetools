@@ -63,7 +63,7 @@ class kdecdf():
         self.maxs = np.nanmax(X, axis=0)
 
         # Estimate bandwidth h using Silverman's factor
-        m, n = X.shape[0]
+        m, n = X.shape
         X_std = np.nanstd(X, axis=0, ddof=1)
         if self.method == 'iqr':
             iqrs = np.diff(np.nanquantile(X, [0.25, 0.75], axis=0), axis=0)[0]
