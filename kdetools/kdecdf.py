@@ -63,21 +63,27 @@ class kdecdf():
         self.maxs = np.nanmax(X, axis=0)
 
         # Estimate bandwidth h using Silverman's factor
-        n = X.shape[0]
+        m, n = X.shape[0]
         X_std = np.nanstd(X, axis=0, ddof=1)
         if self.method == 'iqr':
             iqrs = np.diff(np.nanquantile(X, [0.25, 0.75], axis=0), axis=0)[0]
-            self.bws = 0.9*np.minimum(iqrs/1.34, X_std)*n**(-1/5)
+            self.bws = 0.9*np.minimum(iqrs/1.34, X_std)*m**(-1/5)
         else:
-            self.bws = 1.06*X_std*n**(-1/5)
+            self.bws = 1.06*X_std*m**(-1/5)
+
+        # Handle nans by appending row of nans to grids and cdfs
+        nanfill = np.empty(n)
+        nanfill[:] = np.nan
 
         # Calculate points at which to evaluate CDFs
-        self.grids = np.linspace(self.mins-self.buffer_bws*self.bws,
-                                 self.maxs+self.buffer_bws*self.bws, self.N)
+        grids = np.linspace(self.mins-self.buffer_bws*self.bws,
+                            self.maxs+self.buffer_bws*self.bws, self.N)
+        self.grids = np.vstack([grids, nanfill])
 
         # Calculate CDFs; fill nans with median, i.e. assuming few nans
         X = np.where(np.isnan(X), np.nanmedian(X, axis=0), X)
-        self.cdfs = ss.ndtr((self.grids[:,None]-X)/self.bws).mean(axis=1)
+        cdfs = ss.ndtr((self.grids[:,None]-X)/self.bws).mean(axis=1)
+        self.cdfs = np.vstack([cdfs, nanfill])
 
     def transform(self, X):
         """Calculate CDFs for data matrix X using fitted KDE model.
