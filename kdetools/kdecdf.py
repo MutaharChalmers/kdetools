@@ -82,8 +82,7 @@ class kdecdf():
 
         # Calculate CDFs; fill nans with median, i.e. assuming few nans
         X = np.where(np.isnan(X), np.nanmedian(X, axis=0), X)
-        cdfs = ss.ndtr((self.grids[:,None]-X)/self.bws).mean(axis=1)
-        self.cdfs = np.vstack([cdfs, nanfill])
+        self.cdfs = ss.ndtr((self.grids[:,None]-X)/self.bws).mean(axis=1)
 
     def transform(self, X):
         """Calculate CDFs for data matrix X using fitted KDE model.
