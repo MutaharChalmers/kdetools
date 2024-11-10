@@ -36,13 +36,15 @@ class kdecdf():
         self.method = method
         self.nanfill = nanfill
 
-    def fit(self, X):
+    def fit(self, X, clip_zero_bws=True):
         """Fit model to data.
 
         Parameters
         ----------
         X : (m, n) ndarray or DataFrame
             Data matrix.
+        clip_zero_bws : bool, optional
+            Clip zero bandwidths to a non-zero value. Defaults to true.
         """
 
         if self.N is None:
@@ -70,6 +72,10 @@ class kdecdf():
             self.bws = 0.9*np.minimum(iqrs/1.34, X_std)*m**(-1/5)
         else:
             self.bws = 1.06*X_std*m**(-1/5)
+
+        # Clip zero bandwidths to next smallest non-zero value
+        if clip_zero_bws:
+            self.bws = np.clip(self.bws, self.bws[np.nonzero(self.bws)].min(), None)
 
         # Handle nans by appending row of nans to grids and cdfs
         nanfill = np.empty(n)
