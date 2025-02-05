@@ -6,10 +6,11 @@ import numpy as np
 import pandas as pd
 import scipy.stats as st
 import scipy.special as ss
+from .kde import gaussian_kde
 
 
 class kdecdf():
-    def __init__(self, N=50, buffer_bws=1, method='iqr', nanfill=None):
+    def __init__(self, N=50, buffer_bws=1, method='silverman', nanfill=None):
         """Efficient 1D Gaussian KDE modelling of empirical CDFs.
         Models fitted along axis 0 of a 2D numpy array.
 
@@ -20,9 +21,10 @@ class kdecdf():
         buffer_bws : int or float, optional
             Number of kernel bandwidths beyond data bounds to buffer grid.
         method : str, optional
-            Method used to estimate kernel bandwidth. Both options based on the
-            Silverman method, with the default `iqr` using the interquartile
-            range method. For more details see:
+            Method used to estimate kernel bandwidth. Option are 'silverman'
+            (Silverman rule of thumb using the interquartile range method),
+            'scott' (Scott's rule of thumb), 'cv' (leave one out CV) and
+            'precomputed' (bandwidths generated elsewhere). See:
             en.wikipedia.org/wiki/Kernel_density_estimation#Bandwidth_selection
         nanfill : str, optional
             Fill nans, and if so, how to do it. None doesn't fill nans, 'mean'
@@ -36,7 +38,7 @@ class kdecdf():
         self.method = method
         self.nanfill = nanfill
 
-    def fit(self, X, min_bw=1e-18):
+    def fit(self, X, min_bw=1e-18, bws=None):
         """Fit model to data.
 
         Parameters
@@ -64,14 +66,29 @@ class kdecdf():
         self.mins = np.nanmin(X, axis=0)
         self.maxs = np.nanmax(X, axis=0)
 
-        # Estimate bandwidth h using Silverman's factor
+        # Estimate bandwidth
         m, n = X.shape
         X_std = np.nanstd(X, axis=0, ddof=1)
-        if self.method == 'iqr':
+        if self.method.lower() == 'silverman':
             iqrs = np.diff(np.nanquantile(X, [0.25, 0.75], axis=0), axis=0)[0]
             self.bws = 0.9*np.minimum(iqrs/1.34, X_std)*m**(-1/5)
-        else:
+        elif self.method.lower() == 'scott':
             self.bws = 1.06*X_std*m**(-1/5)
+        elif self.method.lower() == 'cv':
+            bws = np.zeros(n)
+            for i in range(n):
+                if np.abs(np.ptp(X[:,i])) < np.spacing(1):
+                    bws[i] = np.spacing(1)
+                else:
+                    kdeobj = gaussian_kde(X[:,i])
+                    kdeobj.set_bandwidth(bw_method='cv')
+                    bws[i] = kdeobj.factor[0]
+            self.bws = bws * X_std
+        elif self.method.lower() == 'precomputed':
+            self.bws = bws
+        else:
+            print('Method must be silverman, scott, cv or precomputed')
+            return None
 
         # Clip zero bandwidths to target minimum
         self.bws = np.clip(self.bws, min_bw, None)
