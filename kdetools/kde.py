@@ -15,7 +15,7 @@ import pyarrow.parquet as pq
 class gaussian_kde(st.gaussian_kde):
     """Superclass of the `scipy.stats.gaussian_kde` class, adding
     conditional sampling and bandwidth selection by cross-validation."""
- 
+
     def __init__(self, dataset, bw_method=None):
         """Subclass scipy gaussian_kde.
         """
@@ -199,7 +199,7 @@ class gaussian_kde(st.gaussian_kde):
 
     def conditional_resample(self, size, x_cond, dims_cond, seed=None):
         """Fast conditional sampling of estimated pdf.
-        
+
         Parameters
         ----------
         size : int
@@ -259,6 +259,35 @@ class gaussian_kde(st.gaussian_kde):
         anoms = random_state.multivariate_normal(np.zeros(cov.shape[0]), cov,
                                                  size=(x_cond.shape[0], size))
         return mus + anoms
+
+    def nw(self, x_cond, dims_cond):
+        """Kernel regression using the Nadaraya-Watson estimator.
+
+        Parameters
+        ----------
+        x_cond : (m, n) ndarray
+            Array of m n-dimensional values to condition on.
+        dims_cond : (n,) int ndarray
+            Indices of the dimensions which are conditioned on.
+
+        Returns
+        -------
+        y_pred : (m,) ndarray
+            Conditional expectation of y given x_cond.
+        """
+
+        # Some pre-processing to allow passing 1D inputs when simpler
+        x_cond = np.atleast_2d(x_cond.T).T
+        dims_cond = np.atleast_1d(dims_cond)
+
+        # Determine indices of dimensions to be predicted
+        dims_pred = np.setdiff1d(range(self.d), dims_cond)
+
+        C = self.covariance[np.ix_(dims_cond, dims_cond)]
+        pdfs = self._mvn_pdf(x_cond, self.dataset[dims_cond].T, C)
+        ys = self.dataset[dims_pred].T
+        nw = (pdfs @ ys).sum(axis=1)/pdfs.sum(axis=1)
+        return nw
 
     def save(self, outpath, model_name, overwrite=False, verbose=True):
         """Save model to disk.
