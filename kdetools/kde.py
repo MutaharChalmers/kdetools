@@ -16,10 +16,10 @@ class gaussian_kde(st.gaussian_kde):
     """Superclass of the `scipy.stats.gaussian_kde` class, adding
     conditional sampling and bandwidth selection by cross-validation."""
 
-    def __init__(self, dataset, bw_method=None):
+    def __init__(self, dataset, bw_method=None, weights=None):
         """Subclass scipy gaussian_kde.
         """
-        super(gaussian_kde, self).__init__(dataset, bw_method=bw_method)
+        super(gaussian_kde, self).__init__(dataset, bw_method=bw_method, weights=weights)
         if callable(bw_method):
             self.bw_method = 'callable'
         elif np.isscalar(bw_method) and not isinstance(bw_method, str):
@@ -170,7 +170,7 @@ class gaussian_kde(st.gaussian_kde):
 
         # Cache covariance and Cholesky decomp of covariance
         if not hasattr(self, '_data_cho_cov'):
-            self._data_covariance = np.atleast_2d(np.cov(self.dataset, rowvar=1,
+            self._data_covariance = np.atleast_2d(np.cov(self.dataset, rowvar=True,
                                                   bias=False, aweights=self.weights))
             self._data_cho_cov = sl.cholesky(self._data_covariance, lower=True)
 
