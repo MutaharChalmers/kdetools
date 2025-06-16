@@ -91,7 +91,7 @@ class gaussian_kde(st.gaussian_kde):
                 *np.power(self.neff, -1/5)
                ).ravel()/self.dataset.std(ddof=1, axis=1)
 
-    def set_bandwidth(self, bw_method=None, bw_type='covariance', k=None):
+    def set_bandwidth(self, bw_method=None, bw_type='covariance', k=None, cv_optmeth='L-BFGS-B'):
         """Add bandwidth selection by cross-validation.
 
         Parameters
@@ -103,6 +103,9 @@ class gaussian_kde(st.gaussian_kde):
             `diagonal`, and `equal`.
         k : int, optional
             Number of folds in cross-validation. Leave One Out by default.
+        cv_optmeth : str, optional
+            scipy.optimize method used when bw_method='cv'.
+            Defaults to L-BFGS-G.
         """
 
         if bw_method == 'cv':
@@ -111,20 +114,20 @@ class gaussian_kde(st.gaussian_kde):
             if bw_type == 'covariance':
                 h0 = self.silverman_factor_ref().mean()
                 def negloglike(h, Xeval, Xfit):
-                    return -np.log(self._mvn_pdf(Xeval, Xfit, np.cov(Xfit.T)*h**2
-                                                ).mean(axis=1)).sum()
+                    likes = self._mvn_pdf(Xeval, Xfit, np.cov(Xfit.T)*h**2).mean(axis=1)
+                    return -np.log(np.where(likes>1e-18, likes, 1e-18)).sum()
             # Vector of factors scaling each dimension with no cross-covariance
             elif bw_type == 'diagonal':
                 h0 = self.dataset.std(ddof=1, axis=1) * self.silverman_factor_ref()
                 def negloglike(h, Xeval, Xfit):
-                    return -np.log(self._mvn_pdf(Xeval, Xfit, np.diag(h**2)
-                                                ).mean(axis=1)).sum()
+                    likes = self._mvn_pdf(Xeval, Xfit, np.diag(h**2)).mean(axis=1)
+                    return -np.log(np.where(likes>1e-18, likes, 1e-18)).sum()
             # Single factor scaling in all dimensions with no cross-covariance
             elif bw_type == 'equal':
                 h0 = self.dataset.std(ddof=1) * self.silverman_factor_ref().mean()
                 def negloglike(h, Xeval, Xfit):
-                    return -np.log(self._mvn_pdf(Xeval, Xfit, np.eye(self.d)*h**2
-                                                ).mean(axis=1)).sum()
+                    likes = self._mvn_pdf(Xeval, Xfit, np.eye(self.d)*h**2).mean(axis=1)
+                    return -np.log(np.where(likes>1e-18, likes, 1e-18)).sum()
             else:
                 print('bw_type must be covariance, diagonal or equal')
                 return None
@@ -142,7 +145,8 @@ class gaussian_kde(st.gaussian_kde):
             def negloglike_cv(h, X, splits):
                 return np.mean([negloglike(h, X[j], X[i]) for i, j in splits])
             res = so.minimize(negloglike_cv, h0, args=(self.dataset.T, splits),
-                              method='nelder-mead')
+                              method=cv_optmeth, bounds=[(0, np.inf)])
+            self.res = res
             self.h = res['x']
             self.loglike_cv = -res['fun']
             self.covariance_factor = lambda: self.h
